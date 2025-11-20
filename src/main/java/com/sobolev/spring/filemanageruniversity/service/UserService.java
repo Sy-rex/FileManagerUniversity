@@ -1,5 +1,6 @@
 package com.sobolev.spring.filemanageruniversity.service;
 
+import com.sobolev.spring.filemanageruniversity.config.FileManagerConstants;
 import com.sobolev.spring.filemanageruniversity.entity.User;
 import com.sobolev.spring.filemanageruniversity.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,8 +27,20 @@ public class UserService {
         if (username == null || username.trim().isEmpty()) {
             throw new IllegalArgumentException("Имя пользователя не может быть пустым");
         }
+        if (username.trim().length() < FileManagerConstants.MIN_USERNAME_LENGTH) {
+            throw new IllegalArgumentException("Имя пользователя должно содержать минимум " 
+                + FileManagerConstants.MIN_USERNAME_LENGTH + " символа");
+        }
+        if (username.trim().length() > FileManagerConstants.MAX_USERNAME_LENGTH) {
+            throw new IllegalArgumentException("Имя пользователя не должно превышать " 
+                + FileManagerConstants.MAX_USERNAME_LENGTH + " символов");
+        }
         if (password == null || password.trim().isEmpty()) {
             throw new IllegalArgumentException("Пароль не может быть пустым");
+        }
+        if (password.length() < FileManagerConstants.MIN_PASSWORD_LENGTH) {
+            throw new IllegalArgumentException("Пароль должен содержать минимум " 
+                + FileManagerConstants.MIN_PASSWORD_LENGTH + " символ");
         }
 
         Optional<User> existingUser = userRepository.findByUsername(username);

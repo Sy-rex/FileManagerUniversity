@@ -1,5 +1,6 @@
 package com.sobolev.spring.filemanageruniversity.service;
 
+import com.sobolev.spring.filemanageruniversity.config.FileManagerConstants;
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
 import org.apache.commons.compress.archivers.zip.ZipArchiveInputStream;
 import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream;
@@ -86,7 +87,7 @@ public class ZipService {
         zos.putArchiveEntry(entry);
         
         try (FileInputStream fis = new FileInputStream(file)) {
-            byte[] buffer = new byte[8192];
+            byte[] buffer = new byte[FileManagerConstants.BUFFER_SIZE];
             int len;
             while ((len = fis.read(buffer)) > 0) {
                 zos.write(buffer, 0, len);
@@ -123,7 +124,7 @@ public class ZipService {
                 entryCount++;
                 
                 // Защита от ZIP-бомб: проверяем количество записей
-                if (entryCount > 10000) {
+                if (entryCount > FileManagerConstants.ZIP_MAX_ENTRIES) {
                     throw new SecurityException("Слишком много записей в архиве. Возможна ZIP-бомба!");
                 }
                 
@@ -156,7 +157,7 @@ public class ZipService {
                     
                     // Безопасное копирование с ограничением размера
                     try (OutputStream os = Files.newOutputStream(entryPath)) {
-                        byte[] buffer = new byte[8192];
+                        byte[] buffer = new byte[FileManagerConstants.BUFFER_SIZE];
                         long written = 0;
                         int len;
                         while ((len = zis.read(buffer)) > 0) {

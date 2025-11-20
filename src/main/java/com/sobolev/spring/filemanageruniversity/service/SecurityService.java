@@ -1,9 +1,11 @@
 package com.sobolev.spring.filemanageruniversity.service;
 
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
@@ -15,6 +17,16 @@ public class SecurityService {
 
     @Value("${filemanager.max.file.size:104857600}")
     private long maxFileSize; // 100MB по умолчанию
+    
+    @PostConstruct
+    public void validateConfiguration() {
+        if (baseDirectory == null || baseDirectory.trim().isEmpty()) {
+            throw new IllegalStateException("Базовая директория не может быть пустой");
+        }
+        if (maxFileSize <= 0) {
+            throw new IllegalStateException("Максимальный размер файла должен быть положительным числом");
+        }
+    }
 
     public Path validateAndNormalizePath(String userPath) {
         if (userPath == null || userPath.isEmpty()) {
@@ -40,8 +52,20 @@ public class SecurityService {
             throw new SecurityException("Размер файла не может быть отрицательным");
         }
         if (fileSize > maxFileSize) {
-            throw new SecurityException("Размер файла превышает максимально допустимый: " + maxFileSize + " байт");
+            String maxSizeFormatted = formatFileSize(maxFileSize);
+            String actualSizeFormatted = formatFileSize(fileSize);
+            throw new SecurityException(String.format(
+                "Размер файла (%s) превышает максимально допустимый: %s (%d байт)",
+                actualSizeFormatted, maxSizeFormatted, maxFileSize
+            ));
         }
+    }
+    
+    private String formatFileSize(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return String.format("%.2f KB", bytes / 1024.0);
+        if (bytes < 1024 * 1024 * 1024) return String.format("%.2f MB", bytes / (1024.0 * 1024.0));
+        return String.format("%.2f GB", bytes / (1024.0 * 1024.0 * 1024.0));
     }
 
     public Path getBaseDirectory() {
@@ -49,9 +73,19 @@ public class SecurityService {
     }
 
     public void ensureBaseDirectoryExists() {
-        File baseDir = getBaseDirectory().toFile();
-        if (!baseDir.exists()) {
-            baseDir.mkdirs();
+        Path basePath = getBaseDirectory();
+        try {
+            if (!Files.exists(basePath)) {
+                Files.createDirectories(basePath);
+            }
+            if (!Files.isDirectory(basePath)) {
+                throw new IllegalStateException("Базовый путь не является директорией: " + basePath);
+            }
+            if (!Files.isWritable(basePath)) {
+                throw new IllegalStateException("Нет прав на запись в базовую директорию: " + basePath);
+            }
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("Не удалось создать базовую директорию: " + basePath, e);
         }
     }
 }

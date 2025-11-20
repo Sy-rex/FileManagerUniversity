@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.sobolev.spring.filemanageruniversity.config.FileManagerConstants;
 import java.io.*;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
@@ -53,7 +54,7 @@ public class FileService {
              FileLock lock = channel.lock(0, Long.MAX_VALUE, true)) { // Shared lock для чтения
             
             byte[] content = Files.readAllBytes(validatedPath);
-            String contentStr = new String(content, "UTF-8");
+            String contentStr = new String(content, FileManagerConstants.DEFAULT_CHARSET);
             
             // Логируем операцию
             FileEntity fileEntity = findOrCreateFileEntity(filePath, file, user);
@@ -67,7 +68,7 @@ public class FileService {
     public void writeFile(String filePath, String content, User user) throws IOException {
         Path validatedPath = securityService.validateAndNormalizePath(filePath);
         
-        byte[] contentBytes = content.getBytes("UTF-8");
+        byte[] contentBytes = content.getBytes(FileManagerConstants.DEFAULT_CHARSET);
         securityService.validateFileSize(contentBytes.length);
         
         // Создаем директорию, если не существует
@@ -252,10 +253,10 @@ public class FileService {
 
     private String calculateChecksum(File file) {
         try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            MessageDigest md = MessageDigest.getInstance(FileManagerConstants.CHECKSUM_ALGORITHM);
             try (FileInputStream fis = new FileInputStream(file);
                  BufferedInputStream bis = new BufferedInputStream(fis)) {
-                byte[] buffer = new byte[8192];
+                byte[] buffer = new byte[FileManagerConstants.BUFFER_SIZE];
                 int bytesRead;
                 while ((bytesRead = bis.read(buffer)) != -1) {
                     md.update(buffer, 0, bytesRead);
