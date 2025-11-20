@@ -3,7 +3,7 @@ package com.sobolev.spring.filemanageruniversity.service;
 import com.sobolev.spring.filemanageruniversity.config.FileManagerConstants;
 import com.sobolev.spring.filemanageruniversity.exception.FileNotFoundException;
 import com.sobolev.spring.filemanageruniversity.exception.SecurityException;
-import com.sobolev.spring.filemanageruniversity.exception.ZipBombException;
+import com.sobolev.spring.filemanageruniversity.exception.*;
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
 import org.apache.commons.compress.archivers.zip.ZipArchiveInputStream;
 import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream;
@@ -14,8 +14,6 @@ import org.springframework.stereotype.Service;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.util.zip.ZipEntry;
 
 @Service
 public class ZipService {
@@ -35,23 +33,23 @@ public class ZipService {
 
     public void createZipArchive(String zipPath, String... filePaths) throws IOException {
         Path validatedZipPath = securityService.validateAndNormalizePath(zipPath);
-        
+
         // Создаем директорию, если не существует
         Files.createDirectories(validatedZipPath.getParent());
-        
+
         long totalUncompressedSize = 0;
-        
+
         try (ZipArchiveOutputStream zos = new ZipArchiveOutputStream(
                 new BufferedOutputStream(Files.newOutputStream(validatedZipPath)))) {
-            
+
             for (String filePath : filePaths) {
                 Path validatedFilePath = securityService.validateAndNormalizePath(filePath);
                 File file = validatedFilePath.toFile();
-                
+
                 if (!file.exists()) {
                     throw new FileNotFoundException(filePath);
                 }
-                
+
                 if (file.isDirectory()) {
                     addDirectoryToZip(zos, file, "", totalUncompressedSize);
                 } else {
@@ -77,18 +75,18 @@ public class ZipService {
     private long addFileToZip(ZipArchiveOutputStream zos, File file, String basePath, long currentTotal) throws IOException {
         long fileSize = file.length();
         long newTotal = currentTotal + fileSize;
-        
+
         // Защита от ZIP-бомб: проверяем общий размер распакованных данных
         if (newTotal > maxUncompressedSize) {
             throw new SecurityException("Превышен максимальный размер распакованных данных. Возможна ZIP-бомба!");
         }
-        
+
         securityService.validateFileSize(fileSize);
-        
+
         ZipArchiveEntry entry = new ZipArchiveEntry(basePath + file.getName());
         entry.setSize(fileSize);
         zos.putArchiveEntry(entry);
-        
+
         try (FileInputStream fis = new FileInputStream(file)) {
             byte[] buffer = new byte[FileManagerConstants.BUFFER_SIZE];
             int len;
@@ -96,7 +94,7 @@ public class ZipService {
                 zos.write(buffer, 0, len);
             }
         }
-        
+
         zos.closeArchiveEntry();
         return fileSize;
     }
@@ -104,44 +102,44 @@ public class ZipService {
     public void extractZipArchive(String zipPath, String extractToPath) throws IOException {
         Path validatedZipPath = securityService.validateAndNormalizePath(zipPath);
         Path validatedExtractPath = securityService.validateAndNormalizePath(extractToPath);
-        
+
         File zipFile = validatedZipPath.toFile();
         if (!zipFile.exists()) {
             throw new FileNotFoundException(zipPath);
         }
-        
+
         securityService.validateFileSize(zipFile.length());
-        
+
         long zipFileSize = zipFile.length();
-        
+
         // ПЕРВЫЙ ПРОХОД: Валидация архива БЕЗ извлечения файлов
         validateZipArchive(validatedZipPath, zipFileSize);
-        
+
         // ВТОРОЙ ПРОХОД: Извлечение файлов только после успешной валидации
         // Создаем директорию для извлечения только после валидации
         Files.createDirectories(validatedExtractPath);
-        
+
         // Список извлеченных файлов для очистки при ошибке
         java.util.List<Path> extractedFiles = new java.util.ArrayList<>();
-        
+
         try (ZipArchiveInputStream zis = new ZipArchiveInputStream(
                 new BufferedInputStream(Files.newInputStream(validatedZipPath)))) {
-            
+
             ZipArchiveEntry entry;
             while ((entry = zis.getNextZipEntry()) != null) {
                 Path entryPath = validatedExtractPath.resolve(entry.getName()).normalize();
-                
+
                 // Защита от Path Traversal при извлечении
                 if (!entryPath.startsWith(validatedExtractPath)) {
                     cleanupExtractedFiles(extractedFiles);
                     throw new SecurityException("Попытка извлечения файла вне целевой директории (Path Traversal)");
                 }
-                
+
                 if (entry.isDirectory()) {
                     Files.createDirectories(entryPath);
                 } else {
                     Files.createDirectories(entryPath.getParent());
-                    
+
                     // Безопасное копирование с ограничением размера
                     long entrySize = entry.getSize();
                     try (OutputStream os = Files.newOutputStream(entryPath)) {
@@ -177,17 +175,21 @@ public class ZipService {
                     }
                 }
             }
-        } catch (ZipBombException | SecurityException e) {
+        } catch (ZipBombException e) {
             // При обнаружении ZIP-бомбы очищаем все извлеченные файлы
             cleanupExtractedFiles(extractedFiles);
             throw e;
-        } catch (Exception e) {
+        }catch (SecurityException e) {
+            // При обнаружении ZIP-бомбы очищаем все извлеченные файлы
+            cleanupExtractedFiles(extractedFiles);
+            throw e;
+        }catch (Exception e) {
             // При любой другой ошибке также очищаем
             cleanupExtractedFiles(extractedFiles);
             throw new IOException("Ошибка при извлечении архива: " + e.getMessage(), e);
         }
     }
-    
+
     /**
      * Удаляет все частично извлеченные файлы при обнаружении ошибки
      */
@@ -201,8 +203,8 @@ public class ZipService {
         }
         extractedFiles.clear();
     }
-    }
-    
+
+
     /**
      * Валидирует ZIP архив перед извлечением
      * Проверяет все записи БЕЗ записи файлов на диск
@@ -210,34 +212,34 @@ public class ZipService {
     private void validateZipArchive(Path zipPath, long zipFileSize) throws IOException {
         long totalUncompressedSize = 0;
         int entryCount = 0;
-        
+
         try (ZipArchiveInputStream zis = new ZipArchiveInputStream(
                 new BufferedInputStream(Files.newInputStream(zipPath)))) {
-            
+
             ZipArchiveEntry entry;
             while ((entry = zis.getNextZipEntry()) != null) {
                 entryCount++;
-                
+
                 // Защита от ZIP-бомб: проверяем количество записей ДО извлечения
                 if (entryCount > FileManagerConstants.ZIP_MAX_ENTRIES) {
                     throw new ZipBombException("Слишком много записей в архиве: " + entryCount);
                 }
-                
+
                 long entrySize = entry.getSize();
                 if (entrySize > 0) {
                     // Защита от ZIP-бомб: проверяем степень сжатия ДО извлечения
                     if (entrySize > zipFileSize * maxCompressionRatio) {
                         throw new ZipBombException("Подозрительно высокая степень сжатия: " + entrySize + " байт");
                     }
-                    
+
                     totalUncompressedSize += entrySize;
-                    
+
                     // Защита от ZIP-бомб: проверяем общий размер распакованных данных ДО извлечения
                     if (totalUncompressedSize > maxUncompressedSize) {
                         throw new ZipBombException("Превышен максимальный размер распакованных данных: " + totalUncompressedSize + " байт");
                     }
                 }
-                
+
                 // Пропускаем данные записи (не записываем на диск, только читаем для валидации)
                 if (!entry.isDirectory()) {
                     byte[] buffer = new byte[FileManagerConstants.BUFFER_SIZE];

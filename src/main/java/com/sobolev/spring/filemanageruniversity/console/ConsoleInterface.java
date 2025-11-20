@@ -4,6 +4,7 @@ import com.sobolev.spring.filemanageruniversity.entity.FileEntity;
 import com.sobolev.spring.filemanageruniversity.entity.OperationType;
 import com.sobolev.spring.filemanageruniversity.entity.User;
 import com.sobolev.spring.filemanageruniversity.exception.*;
+import com.sobolev.spring.filemanageruniversity.exception.SecurityException;
 import com.sobolev.spring.filemanageruniversity.service.*;
 import com.sobolev.spring.filemanageruniversity.util.InputValidator;
 import com.sobolev.spring.filemanageruniversity.util.OutputFormatter;

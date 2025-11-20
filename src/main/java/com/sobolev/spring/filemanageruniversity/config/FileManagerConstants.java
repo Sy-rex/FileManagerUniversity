@@ -3,7 +3,8 @@ package com.sobolev.spring.filemanageruniversity.config;
 /**
  * Константы для файлового менеджера
  */
-public final class FileManagerConstants {
+public final class
+FileManagerConstants {
     
     private FileManagerConstants() {
         // Утилитный класс
