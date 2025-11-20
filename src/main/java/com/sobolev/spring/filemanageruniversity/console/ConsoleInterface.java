@@ -3,11 +3,13 @@ package com.sobolev.spring.filemanageruniversity.console;
 import com.sobolev.spring.filemanageruniversity.entity.FileEntity;
 import com.sobolev.spring.filemanageruniversity.entity.OperationType;
 import com.sobolev.spring.filemanageruniversity.entity.User;
+import com.sobolev.spring.filemanageruniversity.exception.*;
 import com.sobolev.spring.filemanageruniversity.service.*;
+import com.sobolev.spring.filemanageruniversity.util.InputValidator;
+import com.sobolev.spring.filemanageruniversity.util.OutputFormatter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
-
 
 import java.io.IOException;
 import java.util.List;
@@ -96,8 +98,10 @@ public class ConsoleInterface implements CommandLineRunner {
             } else {
                 System.out.println("Неверное имя пользователя или пароль.\n");
             }
+        } catch (ValidationException e) {
+            System.out.println("⚠️  " + e.getMessage() + "\n");
         } catch (Exception e) {
-            System.out.println("Ошибка при входе: " + e.getMessage() + "\n");
+            handleException(e, "Ошибка при входе");
         }
     }
 
@@ -113,8 +117,10 @@ public class ConsoleInterface implements CommandLineRunner {
             currentUser = newUser;
             System.out.println("Регистрация успешна! Добро пожаловать, " + currentUser.getUsername() + "!\n");
             auditService.logOperation(currentUser, OperationType.CREATE, "Регистрация нового пользователя");
+        } catch (ValidationException e) {
+            System.out.println("⚠️  " + e.getMessage() + "\n");
         } catch (Exception e) {
-            System.out.println("Ошибка при регистрации: " + e.getMessage() + "\n");
+            handleException(e, "Ошибка при регистрации");
         }
     }
 
@@ -207,109 +213,150 @@ public class ConsoleInterface implements CommandLineRunner {
                         System.out.println("Неверный выбор.");
                 }
             } catch (Exception e) {
-                System.out.println("Ошибка: " + e.getMessage());
+                handleFileOperationException(e, "выполнении операции");
             }
         }
     }
 
-    private void readFile() throws IOException {
-        System.out.print("Введите путь к файлу (относительный, например: test.txt): ");
-        String filePath = scanner.nextLine().trim();
-        if (filePath.isEmpty()) {
-            System.out.println("Путь не может быть пустым.");
-            return;
+    private void readFile() {
+        try {
+            String filePath = readInputPath(
+                "Введите путь к файлу (относительный, например: test.txt): ",
+                "test.txt"
+            );
+            if (filePath == null) return;
+            
+            String content = fileService.readFile(filePath, currentUser);
+            System.out.println("\n📄 Содержимое файла:");
+            System.out.println(OutputFormatter.createSeparator(60));
+            System.out.println(content);
+            System.out.println(OutputFormatter.createSeparator(60));
+        } catch (Exception e) {
+            handleFileOperationException(e, "чтении файла");
         }
-        String content = fileService.readFile(filePath, currentUser);
-        System.out.println("\nСодержимое файла:\n" + content);
     }
 
-    private void writeFile() throws IOException {
-        System.out.print("Введите путь к файлу (относительный, например: test.txt или folder/file.txt): ");
-        String filePath = scanner.nextLine().trim();
-        if (filePath.isEmpty()) {
-            System.out.println("Путь не может быть пустым.");
-            return;
+    private void writeFile() {
+        try {
+            String filePath = readInputPath(
+                "Введите путь к файлу (относительный, например: test.txt или folder/file.txt): ",
+                "test.txt"
+            );
+            if (filePath == null) return;
+            
+            System.out.println("Введите содержимое файла (для завершения введите пустую строку):");
+            StringBuilder content = new StringBuilder();
+            String line;
+            while (!(line = scanner.nextLine()).isEmpty()) {
+                content.append(line).append("\n");
+            }
+            
+            if (content.length() == 0) {
+                System.out.println("⚠️  Предупреждение: файл будет пустым.");
+            }
+            
+            fileService.writeFile(filePath, content.toString(), currentUser);
+            System.out.println("✅ Файл успешно сохранен: " + filePath);
+        } catch (Exception e) {
+            handleFileOperationException(e, "записи файла");
         }
-        System.out.println("Введите содержимое файла (для завершения введите пустую строку):");
-        StringBuilder content = new StringBuilder();
-        String line;
-        while (!(line = scanner.nextLine()).isEmpty()) {
-            content.append(line).append("\n");
-        }
-        fileService.writeFile(filePath, content.toString(), currentUser);
-        System.out.println("Файл успешно сохранен.");
     }
 
     private void deleteFile() {
         try {
-            System.out.print("Введите путь к файлу для удаления (относительный, например: test.txt): ");
-            String filePath = scanner.nextLine().trim();
-            if (filePath.isEmpty()) {
-                System.out.println("Путь не может быть пустым.");
-                return;
-            }
-            System.out.print("Вы уверены? (yes/no): ");
+            String filePath = readInputPath(
+                "Введите путь к файлу для удаления (относительный, например: test.txt): ",
+                "test.txt"
+            );
+            if (filePath == null) return;
+            
+            System.out.print("⚠️  Вы уверены, что хотите удалить файл? (yes/no): ");
             String confirm = scanner.nextLine().trim();
             if ("yes".equalsIgnoreCase(confirm)) {
                 fileService.deleteFile(filePath, currentUser);
-                System.out.println("Файл успешно удален.");
+                System.out.println("✅ Файл успешно удален: " + filePath);
             } else {
-                System.out.println("Операция отменена.");
+                System.out.println("❌ Операция отменена.");
             }
         } catch (Exception e) {
-            System.out.println("Ошибка при удалении файла: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
-            if (e.getCause() != null) {
-                System.out.println("Причина: " + e.getCause().getMessage());
+            handleFileOperationException(e, "удалении файла");
+        }
+    }
+
+    private void copyFile() {
+        try {
+            String sourcePath = readInputPath(
+                "Введите путь к исходному файлу: ",
+                "source.txt"
+            );
+            if (sourcePath == null) return;
+            
+            String destPath = readInputPath(
+                "Введите путь к файлу назначения: ",
+                "destination.txt"
+            );
+            if (destPath == null) return;
+            
+            fileService.copyFile(sourcePath, destPath, currentUser);
+            System.out.println("✅ Файл успешно скопирован из " + sourcePath + " в " + destPath);
+        } catch (Exception e) {
+            handleFileOperationException(e, "копировании файла");
+        }
+    }
+
+    private void moveFile() {
+        try {
+            String sourcePath = readInputPath(
+                "Введите путь к исходному файлу: ",
+                "source.txt"
+            );
+            if (sourcePath == null) return;
+            
+            String destPath = readInputPath(
+                "Введите путь к файлу назначения: ",
+                "destination.txt"
+            );
+            if (destPath == null) return;
+            
+            fileService.moveFile(sourcePath, destPath, currentUser);
+            System.out.println("✅ Файл успешно перемещен из " + sourcePath + " в " + destPath);
+        } catch (Exception e) {
+            handleFileOperationException(e, "перемещении файла");
+        }
+    }
+
+    private void listFiles() {
+        try {
+            System.out.print("Введите путь к директории (относительный, для корня введите . или пустую строку): ");
+            String dirPath = scanner.nextLine().trim();
+            if (dirPath.isEmpty()) {
+                dirPath = "."; // Текущая директория (корень базовой директории)
             }
-        }
-    }
-
-    private void copyFile() throws IOException {
-        System.out.print("Введите путь к исходному файлу: ");
-        String sourcePath = scanner.nextLine().trim();
-        System.out.print("Введите путь к файлу назначения: ");
-        String destPath = scanner.nextLine().trim();
-        fileService.copyFile(sourcePath, destPath, currentUser);
-        System.out.println("Файл успешно скопирован.");
-    }
-
-    private void moveFile() throws IOException {
-        System.out.print("Введите путь к исходному файлу: ");
-        String sourcePath = scanner.nextLine().trim();
-        System.out.print("Введите путь к файлу назначения: ");
-        String destPath = scanner.nextLine().trim();
-        fileService.moveFile(sourcePath, destPath, currentUser);
-        System.out.println("Файл успешно перемещен.");
-    }
-
-    private void listFiles() throws IOException {
-        System.out.print("Введите путь к директории (относительный, для корня введите . или пустую строку): ");
-        String dirPath = scanner.nextLine().trim();
-        if (dirPath.isEmpty()) {
-            dirPath = "."; // Текущая директория (корень базовой директории)
-        }
-        List<String> files = fileService.listFiles(dirPath, currentUser);
-        System.out.println("\nФайлы в директории:");
-        if (files.isEmpty()) {
-            System.out.println("  (директория пуста)");
-        } else {
-            files.forEach(file -> System.out.println("  - " + file));
+            
+            List<String> files = fileService.listFiles(dirPath, currentUser);
+            System.out.println("\n📁 Файлы в директории (" + dirPath + "):");
+            System.out.println(OutputFormatter.formatSimpleFileList(files));
+        } catch (Exception e) {
+            handleFileOperationException(e, "получении списка файлов");
         }
     }
 
     private void getFileInfo() {
-        System.out.print("Введите путь к файлу: ");
-        String filePath = scanner.nextLine().trim();
-        FileEntity fileInfo = fileService.getFileInfo(filePath, currentUser);
-        if (fileInfo != null) {
-            System.out.println("\nИнформация о файле:");
-            System.out.println("Имя: " + fileInfo.getFilename());
-            System.out.println("Размер: " + fileInfo.getSize() + " байт");
-            System.out.println("Дата создания: " + fileInfo.getCreatedAt());
-            System.out.println("Тип: " + fileInfo.getFileType());
-            System.out.println("Архивирован: " + fileInfo.getIsArchived());
-        } else {
-            System.out.println("Файл не найден в базе данных.");
+        try {
+            String filePath = readInputPath(
+                "Введите путь к файлу: ",
+                "test.txt"
+            );
+            if (filePath == null) return;
+            
+            FileEntity fileInfo = fileService.getFileInfo(filePath, currentUser);
+            if (fileInfo != null) {
+                System.out.println("\n" + OutputFormatter.formatFileInfo(fileInfo));
+            } else {
+                System.out.println("❌ Файл не найден в базе данных: " + filePath);
+            }
+        } catch (Exception e) {
+            handleFileOperationException(e, "получении информации о файле");
         }
     }
 
@@ -348,57 +395,103 @@ public class ConsoleInterface implements CommandLineRunner {
                         System.out.println("Неверный выбор.");
                 }
             } catch (Exception e) {
-                System.out.println("Ошибка: " + e.getMessage());
+                handleFileOperationException(e, "выполнении операции");
             }
         }
     }
 
-    private void readJsonFile() throws IOException {
-        System.out.print("Введите путь к JSON файлу: ");
-        String filePath = scanner.nextLine().trim();
-        Map<String, Object> data = jsonXmlService.readJsonFile(filePath);
-        System.out.println("\nСодержимое JSON файла:");
-        System.out.println(data);
-    }
-
-    private void writeJsonFile() throws IOException {
-        System.out.print("Введите путь к JSON файлу: ");
-        String filePath = scanner.nextLine().trim();
-        System.out.println("Введите JSON данные в формате ключ=значение (для завершения введите пустую строку):");
-        Map<String, Object> data = new java.util.HashMap<>();
-        String line;
-        while (!(line = scanner.nextLine()).isEmpty()) {
-            String[] parts = line.split("=", 2);
-            if (parts.length == 2) {
-                data.put(parts[0].trim(), parts[1].trim());
-            }
+    private void readJsonFile() {
+        try {
+            String filePath = readInputPath(
+                "Введите путь к JSON файлу: ",
+                "data.json"
+            );
+            if (filePath == null) return;
+            
+            Map<String, Object> data = jsonXmlService.readJsonFile(filePath);
+            System.out.println("\n📄 Содержимое JSON файла:");
+            System.out.println(OutputFormatter.formatJsonXmlData(data));
+        } catch (Exception e) {
+            handleFileOperationException(e, "чтении JSON файла");
         }
-        jsonXmlService.writeJsonFile(filePath, data);
-        System.out.println("JSON файл успешно сохранен.");
     }
 
-    private void readXmlFile() throws IOException {
-        System.out.print("Введите путь к XML файлу: ");
-        String filePath = scanner.nextLine().trim();
-        Map<String, Object> data = jsonXmlService.readXmlFile(filePath);
-        System.out.println("\nСодержимое XML файла:");
-        System.out.println(data);
-    }
-
-    private void writeXmlFile() throws IOException {
-        System.out.print("Введите путь к XML файлу: ");
-        String filePath = scanner.nextLine().trim();
-        System.out.println("Введите XML данные в формате ключ=значение (для завершения введите пустую строку):");
-        Map<String, Object> data = new java.util.HashMap<>();
-        String line;
-        while (!(line = scanner.nextLine()).isEmpty()) {
-            String[] parts = line.split("=", 2);
-            if (parts.length == 2) {
-                data.put(parts[0].trim(), parts[1].trim());
+    private void writeJsonFile() {
+        try {
+            String filePath = readInputPath(
+                "Введите путь к JSON файлу: ",
+                "data.json"
+            );
+            if (filePath == null) return;
+            
+            System.out.println("Введите JSON данные в формате ключ=значение (для завершения введите пустую строку):");
+            Map<String, Object> data = new java.util.HashMap<>();
+            String line;
+            while (!(line = scanner.nextLine()).isEmpty()) {
+                String[] parts = line.split("=", 2);
+                if (parts.length == 2) {
+                    data.put(parts[0].trim(), parts[1].trim());
+                } else {
+                    System.out.println("⚠️  Неверный формат. Используйте: ключ=значение");
+                }
             }
+            
+            if (data.isEmpty()) {
+                System.out.println("⚠️  Предупреждение: файл будет пустым.");
+            }
+            
+            jsonXmlService.writeJsonFile(filePath, data);
+            System.out.println("✅ JSON файл успешно сохранен: " + filePath);
+        } catch (Exception e) {
+            handleFileOperationException(e, "записи JSON файла");
         }
-        jsonXmlService.writeXmlFile(filePath, data);
-        System.out.println("XML файл успешно сохранен.");
+    }
+
+    private void readXmlFile() {
+        try {
+            String filePath = readInputPath(
+                "Введите путь к XML файлу: ",
+                "data.xml"
+            );
+            if (filePath == null) return;
+            
+            Map<String, Object> data = jsonXmlService.readXmlFile(filePath);
+            System.out.println("\n📄 Содержимое XML файла:");
+            System.out.println(OutputFormatter.formatJsonXmlData(data));
+        } catch (Exception e) {
+            handleFileOperationException(e, "чтении XML файла");
+        }
+    }
+
+    private void writeXmlFile() {
+        try {
+            String filePath = readInputPath(
+                "Введите путь к XML файлу: ",
+                "data.xml"
+            );
+            if (filePath == null) return;
+            
+            System.out.println("Введите XML данные в формате ключ=значение (для завершения введите пустую строку):");
+            Map<String, Object> data = new java.util.HashMap<>();
+            String line;
+            while (!(line = scanner.nextLine()).isEmpty()) {
+                String[] parts = line.split("=", 2);
+                if (parts.length == 2) {
+                    data.put(parts[0].trim(), parts[1].trim());
+                } else {
+                    System.out.println("⚠️  Неверный формат. Используйте: ключ=значение");
+                }
+            }
+            
+            if (data.isEmpty()) {
+                System.out.println("⚠️  Предупреждение: файл будет пустым.");
+            }
+            
+            jsonXmlService.writeXmlFile(filePath, data);
+            System.out.println("✅ XML файл успешно сохранен: " + filePath);
+        } catch (Exception e) {
+            handleFileOperationException(e, "записи XML файла");
+        }
     }
 
     private void showZipMenu() {
@@ -425,39 +518,118 @@ public class ConsoleInterface implements CommandLineRunner {
                         System.out.println("Неверный выбор.");
                 }
             } catch (Exception e) {
-                System.out.println("Ошибка: " + e.getMessage());
+                handleFileOperationException(e, "выполнении операции");
             }
         }
     }
 
-    private void createZipArchive() throws IOException {
-        System.out.print("Введите путь к ZIP архиву: ");
-        String zipPath = scanner.nextLine().trim();
-        System.out.print("Введите пути к файлам для архивации (через пробел): ");
-        String filesInput = scanner.nextLine().trim();
-        String[] filePaths = filesInput.split("\\s+");
-        zipService.createZipArchive(zipPath, filePaths);
-        System.out.println("ZIP архив успешно создан.");
+    private void createZipArchive() {
+        try {
+            String zipPath = readInputPath(
+                "Введите путь к ZIP архиву: ",
+                "archive.zip"
+            );
+            if (zipPath == null) return;
+            
+            System.out.print("Введите пути к файлам для архивации (через пробел): ");
+            String filesInput = scanner.nextLine().trim();
+            if (filesInput.isEmpty()) {
+                System.out.println("❌ Необходимо указать хотя бы один файл для архивации.");
+                return;
+            }
+            
+            String[] filePaths = filesInput.split("\\s+");
+            zipService.createZipArchive(zipPath, filePaths);
+            System.out.println("✅ ZIP архив успешно создан: " + zipPath);
+        } catch (Exception e) {
+            handleFileOperationException(e, "создании ZIP архива");
+        }
     }
 
-    private void extractZipArchive() throws IOException {
-        System.out.print("Введите путь к ZIP архиву: ");
-        String zipPath = scanner.nextLine().trim();
-        System.out.print("Введите путь для извлечения: ");
-        String extractPath = scanner.nextLine().trim();
-        zipService.extractZipArchive(zipPath, extractPath);
-        System.out.println("ZIP архив успешно извлечен.");
+    private void extractZipArchive() {
+        try {
+            String zipPath = readInputPath(
+                "Введите путь к ZIP архиву: ",
+                "archive.zip"
+            );
+            if (zipPath == null) return;
+            
+            String extractPath = readInputPath(
+                "Введите путь для извлечения: ",
+                "extracted/"
+            );
+            if (extractPath == null) return;
+            
+            zipService.extractZipArchive(zipPath, extractPath);
+            System.out.println("✅ ZIP архив успешно извлечен в: " + extractPath);
+        } catch (Exception e) {
+            handleFileOperationException(e, "извлечении ZIP архива");
+        }
     }
 
     private void showUserFiles() {
-        List<FileEntity> files = fileService.getUserFiles(currentUser);
-        if (files.isEmpty()) {
-            System.out.println("\nУ вас пока нет файлов.");
-        } else {
-            System.out.println("\nВаши файлы:");
-            files.forEach(file -> {
-                System.out.println("  - " + file.getFilename() + " (" + file.getSize() + " байт, " + file.getCreatedAt() + ")");
-            });
+        try {
+            List<FileEntity> files = fileService.getUserFiles(currentUser);
+            if (files.isEmpty()) {
+                System.out.println("\nУ вас пока нет файлов.");
+            } else {
+                System.out.println("\n" + OutputFormatter.formatFileList(files));
+            }
+        } catch (Exception e) {
+            handleException(e, "Ошибка при получении списка файлов");
         }
+    }
+    
+    // ==================== Вспомогательные методы ====================
+    
+    /**
+     * Читает и валидирует путь к файлу
+     */
+    private String readInputPath(String prompt, String example) {
+        System.out.print(prompt);
+        String path = scanner.nextLine().trim();
+        try {
+            return InputValidator.validatePath(path, "Путь", example);
+        } catch (ValidationException e) {
+            System.out.println("❌ " + e.getMessage());
+            return null;
+        }
+    }
+    
+    /**
+     * Обрабатывает исключения с понятными сообщениями
+     */
+    private void handleException(Exception e, String context) {
+        if (e instanceof FileNotFoundException) {
+            FileNotFoundException fnfe = (FileNotFoundException) e;
+            System.out.println("❌ Файл не найден: " + fnfe.getFilePath());
+            System.out.println("   Убедитесь, что путь указан правильно и файл существует.");
+        } else if (e instanceof SecurityException) {
+            System.out.println("🔒 Ошибка безопасности: " + e.getMessage());
+            System.out.println("   Операция отклонена из соображений безопасности.");
+        } else if (e instanceof ValidationException) {
+            System.out.println("⚠️  Ошибка валидации: " + e.getMessage());
+        } else if (e instanceof ZipBombException) {
+            System.out.println("💣 " + e.getMessage());
+            System.out.println("   Архив заблокирован из соображений безопасности.");
+        } else if (e instanceof IOException) {
+            System.out.println("📁 Ошибка ввода-вывода: " + e.getMessage());
+            if (e.getCause() != null) {
+                System.out.println("   Причина: " + e.getCause().getMessage());
+            }
+        } else {
+            System.out.println("❌ " + context + ": " + e.getMessage());
+            if (e.getCause() != null) {
+                System.out.println("   Причина: " + e.getCause().getMessage());
+            }
+        }
+        System.out.println();
+    }
+    
+    /**
+     * Обрабатывает исключения в контексте операции с файлами
+     */
+    private void handleFileOperationException(Exception e, String operation) {
+        handleException(e, "Ошибка при " + operation);
     }
 }
