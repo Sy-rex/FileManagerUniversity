@@ -612,6 +612,12 @@ public class ConsoleInterface implements CommandLineRunner {
         } else if (e instanceof ZipBombException) {
             System.out.println("💣 " + e.getMessage());
             System.out.println("   Архив заблокирован из соображений безопасности.");
+        } else if (e instanceof XmlSecurityException) {
+            System.out.println("🔒 " + e.getMessage());
+            System.out.println("   XML файл заблокирован из соображений безопасности.");
+            if (e.getCause() != null && e.getCause().getMessage() != null) {
+                System.out.println("   Техническая информация: " + e.getCause().getMessage());
+            }
         } else if (e instanceof IOException) {
             System.out.println("📁 Ошибка ввода-вывода: " + e.getMessage());
             if (e.getCause() != null) {
