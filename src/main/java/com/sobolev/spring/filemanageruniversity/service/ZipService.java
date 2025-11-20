@@ -1,6 +1,9 @@
 package com.sobolev.spring.filemanageruniversity.service;
 
 import com.sobolev.spring.filemanageruniversity.config.FileManagerConstants;
+import com.sobolev.spring.filemanageruniversity.exception.FileNotFoundException;
+import com.sobolev.spring.filemanageruniversity.exception.SecurityException;
+import com.sobolev.spring.filemanageruniversity.exception.ZipBombException;
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
 import org.apache.commons.compress.archivers.zip.ZipArchiveInputStream;
 import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream;
@@ -46,7 +49,7 @@ public class ZipService {
                 File file = validatedFilePath.toFile();
                 
                 if (!file.exists()) {
-                    throw new IOException("Файл не найден: " + filePath);
+                    throw new FileNotFoundException(filePath);
                 }
                 
                 if (file.isDirectory()) {
@@ -104,7 +107,7 @@ public class ZipService {
         
         File zipFile = validatedZipPath.toFile();
         if (!zipFile.exists()) {
-            throw new IOException("ZIP архив не найден: " + zipPath);
+            throw new FileNotFoundException(zipPath);
         }
         
         securityService.validateFileSize(zipFile.length());
@@ -125,21 +128,21 @@ public class ZipService {
                 
                 // Защита от ZIP-бомб: проверяем количество записей
                 if (entryCount > FileManagerConstants.ZIP_MAX_ENTRIES) {
-                    throw new SecurityException("Слишком много записей в архиве. Возможна ZIP-бомба!");
+                    throw new ZipBombException("Слишком много записей в архиве: " + entryCount);
                 }
                 
                 long entrySize = entry.getSize();
                 if (entrySize > 0) {
                     // Защита от ZIP-бомб: проверяем степень сжатия
                     if (entrySize > zipFileSize * maxCompressionRatio) {
-                        throw new SecurityException("Подозрительно высокая степень сжатия. Возможна ZIP-бомба!");
+                        throw new ZipBombException("Подозрительно высокая степень сжатия: " + entrySize + " байт");
                     }
                     
                     totalUncompressedSize += entrySize;
                     
                     // Защита от ZIP-бомб: проверяем общий размер распакованных данных
                     if (totalUncompressedSize > maxUncompressedSize) {
-                        throw new SecurityException("Превышен максимальный размер распакованных данных. Возможна ZIP-бомба!");
+                        throw new ZipBombException("Превышен максимальный размер распакованных данных: " + totalUncompressedSize + " байт");
                     }
                 }
                 
@@ -163,7 +166,7 @@ public class ZipService {
                         while ((len = zis.read(buffer)) > 0) {
                             written += len;
                             if (written > entrySize && entrySize > 0) {
-                                throw new SecurityException("Размер извлекаемого файла превышает заявленный. Возможна ZIP-бомба!");
+                                throw new ZipBombException("Размер извлекаемого файла превышает заявленный: " + written + " > " + entrySize);
                             }
                             os.write(buffer, 0, len);
                         }

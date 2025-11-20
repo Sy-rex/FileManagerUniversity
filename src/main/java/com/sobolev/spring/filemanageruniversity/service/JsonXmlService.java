@@ -2,6 +2,7 @@ package com.sobolev.spring.filemanageruniversity.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
+import com.sobolev.spring.filemanageruniversity.exception.FileNotFoundException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -32,7 +33,7 @@ public class JsonXmlService {
         File file = validatedPath.toFile();
         
         if (!file.exists()) {
-            throw new IOException("Файл не найден: " + filePath);
+            throw new FileNotFoundException(filePath);
         }
         
         securityService.validateFileSize(file.length());
@@ -55,7 +56,7 @@ public class JsonXmlService {
         File file = validatedPath.toFile();
         
         if (!file.exists()) {
-            throw new IOException("Файл не найден: " + filePath);
+            throw new FileNotFoundException(filePath);
         }
         
         securityService.validateFileSize(file.length());

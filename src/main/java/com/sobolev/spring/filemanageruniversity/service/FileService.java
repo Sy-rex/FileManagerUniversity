@@ -9,6 +9,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.sobolev.spring.filemanageruniversity.config.FileManagerConstants;
+import com.sobolev.spring.filemanageruniversity.exception.FileNotFoundException;
+import com.sobolev.spring.filemanageruniversity.exception.ValidationException;
 import java.io.*;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
@@ -43,7 +45,7 @@ public class FileService {
         File file = validatedPath.toFile();
         
         if (!file.exists()) {
-            throw new FileNotFoundException("Файл не найден: " + filePath);
+            throw new FileNotFoundException(filePath);
         }
         
         securityService.validateFileSize(file.length());
@@ -107,7 +109,7 @@ public class FileService {
         File file = validatedPath.toFile();
         
         if (!file.exists()) {
-            throw new FileNotFoundException("Файл не найден: " + filePath);
+            throw new FileNotFoundException(filePath);
         }
         
         // Находим файл в БД перед блокировкой
@@ -157,7 +159,7 @@ public class FileService {
         
         File sourceFile = validatedSourcePath.toFile();
         if (!sourceFile.exists()) {
-            throw new FileNotFoundException("Исходный файл не найден: " + sourcePath);
+            throw new FileNotFoundException(sourcePath);
         }
         
         securityService.validateFileSize(sourceFile.length());
@@ -184,7 +186,7 @@ public class FileService {
         
         File sourceFile = validatedSourcePath.toFile();
         if (!sourceFile.exists()) {
-            throw new FileNotFoundException("Исходный файл не найден: " + sourcePath);
+            throw new FileNotFoundException(sourcePath);
         }
         
         // Создаем директорию назначения, если не существует
@@ -215,7 +217,7 @@ public class FileService {
         }
         
         if (!directory.isDirectory()) {
-            throw new IllegalArgumentException("Указанный путь не является директорией: " + directoryPath);
+            throw new ValidationException("Указанный путь не является директорией: " + directoryPath);
         }
 
         auditService.logOperation(user, OperationType.READ, null, "Просмотр директории: " + directoryPath);

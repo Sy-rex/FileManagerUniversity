@@ -1,5 +1,7 @@
 package com.sobolev.spring.filemanageruniversity.service;
 
+import com.sobolev.spring.filemanageruniversity.exception.SecurityException;
+import com.sobolev.spring.filemanageruniversity.exception.ValidationException;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -21,10 +23,10 @@ public class SecurityService {
     @PostConstruct
     public void validateConfiguration() {
         if (baseDirectory == null || baseDirectory.trim().isEmpty()) {
-            throw new IllegalStateException("Базовая директория не может быть пустой");
+            throw new ValidationException("Базовая директория не может быть пустой");
         }
         if (maxFileSize <= 0) {
-            throw new IllegalStateException("Максимальный размер файла должен быть положительным числом");
+            throw new ValidationException("Максимальный размер файла должен быть положительным числом");
         }
     }
 
@@ -79,13 +81,13 @@ public class SecurityService {
                 Files.createDirectories(basePath);
             }
             if (!Files.isDirectory(basePath)) {
-                throw new IllegalStateException("Базовый путь не является директорией: " + basePath);
+                throw new ValidationException("Базовый путь не является директорией: " + basePath);
             }
             if (!Files.isWritable(basePath)) {
-                throw new IllegalStateException("Нет прав на запись в базовую директорию: " + basePath);
+                throw new SecurityException("Нет прав на запись в базовую директорию: " + basePath);
             }
         } catch (java.io.IOException e) {
-            throw new IllegalStateException("Не удалось создать базовую директорию: " + basePath, e);
+            throw new ValidationException("Не удалось создать базовую директорию: " + basePath, e);
         }
     }
 }
