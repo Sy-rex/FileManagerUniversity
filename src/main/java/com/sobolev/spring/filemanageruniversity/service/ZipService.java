@@ -112,44 +112,28 @@ public class ZipService {
         
         securityService.validateFileSize(zipFile.length());
         
-        // Создаем директорию для извлечения
+        long zipFileSize = zipFile.length();
+        
+        // ПЕРВЫЙ ПРОХОД: Валидация архива БЕЗ извлечения файлов
+        validateZipArchive(validatedZipPath, zipFileSize);
+        
+        // ВТОРОЙ ПРОХОД: Извлечение файлов только после успешной валидации
+        // Создаем директорию для извлечения только после валидации
         Files.createDirectories(validatedExtractPath);
         
-        long totalUncompressedSize = 0;
-        int entryCount = 0;
-        long zipFileSize = zipFile.length();
+        // Список извлеченных файлов для очистки при ошибке
+        java.util.List<Path> extractedFiles = new java.util.ArrayList<>();
         
         try (ZipArchiveInputStream zis = new ZipArchiveInputStream(
                 new BufferedInputStream(Files.newInputStream(validatedZipPath)))) {
             
             ZipArchiveEntry entry;
             while ((entry = zis.getNextZipEntry()) != null) {
-                entryCount++;
-                
-                // Защита от ZIP-бомб: проверяем количество записей
-                if (entryCount > FileManagerConstants.ZIP_MAX_ENTRIES) {
-                    throw new ZipBombException("Слишком много записей в архиве: " + entryCount);
-                }
-                
-                long entrySize = entry.getSize();
-                if (entrySize > 0) {
-                    // Защита от ZIP-бомб: проверяем степень сжатия
-                    if (entrySize > zipFileSize * maxCompressionRatio) {
-                        throw new ZipBombException("Подозрительно высокая степень сжатия: " + entrySize + " байт");
-                    }
-                    
-                    totalUncompressedSize += entrySize;
-                    
-                    // Защита от ZIP-бомб: проверяем общий размер распакованных данных
-                    if (totalUncompressedSize > maxUncompressedSize) {
-                        throw new ZipBombException("Превышен максимальный размер распакованных данных: " + totalUncompressedSize + " байт");
-                    }
-                }
-                
                 Path entryPath = validatedExtractPath.resolve(entry.getName()).normalize();
                 
                 // Защита от Path Traversal при извлечении
                 if (!entryPath.startsWith(validatedExtractPath)) {
+                    cleanupExtractedFiles(extractedFiles);
                     throw new SecurityException("Попытка извлечения файла вне целевой директории (Path Traversal)");
                 }
                 
@@ -159,16 +143,115 @@ public class ZipService {
                     Files.createDirectories(entryPath.getParent());
                     
                     // Безопасное копирование с ограничением размера
+                    long entrySize = entry.getSize();
                     try (OutputStream os = Files.newOutputStream(entryPath)) {
                         byte[] buffer = new byte[FileManagerConstants.BUFFER_SIZE];
                         long written = 0;
                         int len;
                         while ((len = zis.read(buffer)) > 0) {
                             written += len;
+                            // Дополнительная проверка во время записи
                             if (written > entrySize && entrySize > 0) {
+                                cleanupExtractedFiles(extractedFiles);
+                                try {
+                                    Files.deleteIfExists(entryPath);
+                                } catch (IOException ignored) {}
                                 throw new ZipBombException("Размер извлекаемого файла превышает заявленный: " + written + " > " + entrySize);
                             }
+                            // Проверка общего размера во время записи
+                            if (written > maxUncompressedSize) {
+                                cleanupExtractedFiles(extractedFiles);
+                                try {
+                                    Files.deleteIfExists(entryPath);
+                                } catch (IOException ignored) {}
+                                throw new ZipBombException("Превышен максимальный размер распакованных данных во время извлечения");
+                            }
                             os.write(buffer, 0, len);
+                        }
+                        // Файл успешно извлечен - добавляем в список
+                        extractedFiles.add(entryPath);
+                    } catch (Exception e) {
+                        // При любой ошибке очищаем уже извлеченные файлы
+                        cleanupExtractedFiles(extractedFiles);
+                        throw e;
+                    }
+                }
+            }
+        } catch (ZipBombException | SecurityException e) {
+            // При обнаружении ZIP-бомбы очищаем все извлеченные файлы
+            cleanupExtractedFiles(extractedFiles);
+            throw e;
+        } catch (Exception e) {
+            // При любой другой ошибке также очищаем
+            cleanupExtractedFiles(extractedFiles);
+            throw new IOException("Ошибка при извлечении архива: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Удаляет все частично извлеченные файлы при обнаружении ошибки
+     */
+    private void cleanupExtractedFiles(java.util.List<Path> extractedFiles) {
+        for (Path file : extractedFiles) {
+            try {
+                Files.deleteIfExists(file);
+            } catch (IOException ignored) {
+                // Игнорируем ошибки при удалении
+            }
+        }
+        extractedFiles.clear();
+    }
+    }
+    
+    /**
+     * Валидирует ZIP архив перед извлечением
+     * Проверяет все записи БЕЗ записи файлов на диск
+     */
+    private void validateZipArchive(Path zipPath, long zipFileSize) throws IOException {
+        long totalUncompressedSize = 0;
+        int entryCount = 0;
+        
+        try (ZipArchiveInputStream zis = new ZipArchiveInputStream(
+                new BufferedInputStream(Files.newInputStream(zipPath)))) {
+            
+            ZipArchiveEntry entry;
+            while ((entry = zis.getNextZipEntry()) != null) {
+                entryCount++;
+                
+                // Защита от ZIP-бомб: проверяем количество записей ДО извлечения
+                if (entryCount > FileManagerConstants.ZIP_MAX_ENTRIES) {
+                    throw new ZipBombException("Слишком много записей в архиве: " + entryCount);
+                }
+                
+                long entrySize = entry.getSize();
+                if (entrySize > 0) {
+                    // Защита от ZIP-бомб: проверяем степень сжатия ДО извлечения
+                    if (entrySize > zipFileSize * maxCompressionRatio) {
+                        throw new ZipBombException("Подозрительно высокая степень сжатия: " + entrySize + " байт");
+                    }
+                    
+                    totalUncompressedSize += entrySize;
+                    
+                    // Защита от ZIP-бомб: проверяем общий размер распакованных данных ДО извлечения
+                    if (totalUncompressedSize > maxUncompressedSize) {
+                        throw new ZipBombException("Превышен максимальный размер распакованных данных: " + totalUncompressedSize + " байт");
+                    }
+                }
+                
+                // Пропускаем данные записи (не записываем на диск, только читаем для валидации)
+                if (!entry.isDirectory()) {
+                    byte[] buffer = new byte[FileManagerConstants.BUFFER_SIZE];
+                    long read = 0;
+                    int len;
+                    while ((len = zis.read(buffer)) > 0) {
+                        read += len;
+                        // Проверка реального размера во время чтения
+                        if (read > entrySize && entrySize > 0) {
+                            throw new ZipBombException("Размер записи превышает заявленный: " + read + " > " + entrySize);
+                        }
+                        // Проверка общего размера во время чтения
+                        if (read > maxUncompressedSize) {
+                            throw new ZipBombException("Превышен максимальный размер распакованных данных при валидации");
                         }
                     }
                 }
